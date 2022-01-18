@@ -1,0 +1,300 @@
+``` r
+library(tidyverse)
+library(sf)
+#> Linking to GEOS 3.9.1, GDAL 3.2.1, PROJ 7.2.1
+library(leaflet)
+library(lubridate)
+#> 
+#> Attaching package: 'lubridate'
+#> The following objects are masked from 'package:base':
+#> 
+#>     date, intersect, setdiff, union
+library(rgdal)
+#> Loading required package: sp
+#> Please note that rgdal will be retired by the end of 2023,
+#> plan transition to sf/stars/terra functions using GDAL and PROJ
+#> at your earliest convenience.
+#> 
+#> rgdal: version: 1.5-27, (SVN revision 1148)
+#> Geospatial Data Abstraction Library extensions to R successfully loaded
+#> Loaded GDAL runtime: GDAL 3.2.1, released 2020/12/29
+#> Path to GDAL shared files: C:/Users/William.Cubbin/Documents/R/R-4.1.1/library/rgdal/gdal
+#> GDAL binary built with GEOS: TRUE 
+#> Loaded PROJ runtime: Rel. 7.2.1, January 1st, 2021, [PJ_VERSION: 721]
+#> Path to PROJ shared files: C:/Users/William.Cubbin/Documents/R/R-4.1.1/library/rgdal/proj
+#> PROJ CDN enabled: FALSE
+#> Linking to sp version:1.4-5
+#> To mute warnings of possible GDAL/OSR exportToProj4() degradation,
+#> use options("rgdal_show_exportToProj4_warnings"="none") before loading sp or rgdal.
+#> Overwritten PROJ_LIB was C:/Users/William.Cubbin/Documents/R/R-4.1.1/library/rgdal/proj
+library(dplyr)
+library(sp)
+library(data.table)
+#> 
+#> Attaching package: 'data.table'
+#> The following objects are masked from 'package:lubridate':
+#> 
+#>     hour, isoweek, mday, minute, month, quarter, second, wday, week,
+#>     yday, year
+#> The following objects are masked from 'package:dplyr':
+#> 
+#>     between, first, last
+#> The following object is masked from 'package:purrr':
+#> 
+#>     transpose
+library (foreign)
+library(openxlsx)
+library(ltm)
+#> Warning: package 'ltm' was built under R version 4.1.2
+#> Loading required package: MASS
+#> 
+#> Attaching package: 'MASS'
+#> The following object is masked from 'package:dplyr':
+#> 
+#>     select
+#> Loading required package: msm
+#> Warning: package 'msm' was built under R version 4.1.2
+#> Loading required package: polycor
+#> Warning: package 'polycor' was built under R version 4.1.2
+library(cocron)
+#> Warning: package 'cocron' was built under R version 4.1.2
+#> 
+#> Attaching package: 'cocron'
+#> The following object is masked from 'package:ltm':
+#> 
+#>     cronbach.alpha
+library(groupdata2)
+#> Warning: package 'groupdata2' was built under R version 4.1.2
+
+#Developed from https://rdrr.io/cran/cocron/man/cocron.two.coefficients.html
+
+######################## IMPORT AND CLEAN DATA #####################################
+
+setwd("X:/Road Safety/Safety Data/08 ARU PhD research/Study 1 - Extra Eyes/Results")
+import <- read.csv("Qualtrics_data.csv")
+
+#clean top two rows
+import <- import[-c(1,2),]
+
+#Coerce columns to numeric formats
+  #set columns to coerce to numeric
+i <- c(3,6,7,18:146,148:154)
+
+  #loop through columns in i to change to numeric
+import[,i] <- apply(import[,i],2,
+                      function(x) as.numeric(as.character(x)))
+#> Warning in FUN(newX[, i], ...): NAs introduced by coercion
+#> Warning in FUN(newX[, i], ...): NAs introduced by coercion
+
+remove(i)
+
+
+#format date columns
+import <- import %>% 
+  mutate(StartDate = dmy_hm(StartDate))
+
+import <- import %>% 
+  mutate(EndDate = dmy_hm(EndDate))
+
+
+
+#filters to include only completed responses taking longer than 8 minutes
+filtered <- import %>% 
+  filter(Duration..in.seconds. > 480) %>%
+  filter(Finished == 1)%>%
+  filter(Status == 0)
+
+
+###################### PREPARE DATA TABLES ###########################
+
+#create sub tables for DAX and clip responses for attention check = yes and attention check = no
+DAX_Y <- filtered %>%
+  filter(filtered$SC4 == 1)
+DAX_Y <- DAX_Y[c(108:114,116:133)]
+
+DAX_N <- filtered %>%
+  filter(filtered$SC4 == 0)
+DAX_N <- DAX_N[c(108:114,116:133)]
+
+
+#split DAX into the four types of anger expression
+Verbal_Y <- DAX_Y [c(2,3,14,17,20)]
+Verbal_N <- DAX_N [c(2,3,14,17,20)]
+
+Physical_Y <- DAX_Y [c(5,6,9,21)]
+Physical_N <- DAX_N [c(5,6,9,21)]
+
+Vehicle_Y <- DAX_Y [c(1,4,7,8,10,13)]
+Vehicle_N <- DAX_N [c(1,4,7,8,10,13)]
+
+Adaptive_Y <- DAX_Y [c(11,12,15,16,18,19,22,23,24,25)]
+Adaptive_N <- DAX_N [c(11,12,15,16,18,19,22,23,24,25)]
+
+
+
+
+
+############# DURATION DISTRIBUTION ###########################
+
+#Time taken distribution comparison
+Duration <- filtered %>%
+  filter(filtered$Duration..in.seconds. < 10000)
+
+
+ggplot(Duration, aes(x=Duration..in.seconds., colour=SC4))+
+  labs(x = "Duration (sec)", colour = "Attention check", 
+       title = "Distribution of response time by attention check status") +
+  geom_line(stat = "density", size = 2, alpha = 0.4)
+```
+
+![](https://i.imgur.com/UDovvOf.png)
+
+``` r
+ggsave("Duration_distribution.png")
+#> Saving 7 x 5 in image
+
+
+
+#correlation test
+  #downsample attention check so vectors are same length
+Dura_sample <- downsample(Duration, cat_col = "SC4")
+
+#create vectors and sort 
+pass <- Dura_sample %>% 
+  filter(Dura_sample$SC4 ==1)
+pass <- pass[c(6)]
+pass <- sort(pass$Duration..in.seconds.)
+  
+fail <- Dura_sample %>% 
+  filter(Dura_sample$SC4 ==0)
+fail <- fail[c(6)]
+fail <- sort(fail$Duration..in.seconds.)
+
+#run test
+Correlation_duration <- cor(pass, fail)
+
+
+
+############# ROAD USER IDENTITY ####################
+
+#Road user identity distribution
+ggplot(filtered, aes(x=EndDate, y=SC8)) + geom_point()
+```
+
+![](https://i.imgur.com/lxYnaP4.png)
+
+``` r
+ggsave("ident_scatter_chrono.png")
+#> Saving 7 x 5 in image
+
+ggplot(filtered, aes(x=SC8))+
+  labs(x = "identity score", 
+       title = "Distribution of respondents' identity score") +
+  geom_histogram(stat="count")
+#> Warning: Ignoring unknown parameters: binwidth, bins, pad
+```
+
+![](https://i.imgur.com/CeVjYMb.png)
+
+``` r
+ggsave("identity_distribution.png")
+#> Saving 7 x 5 in image
+
+
+
+################### Cronbachs and Feldt for DAX scores ################################
+
+#Variables for number of observations in each group of passed/failed attention check
+LY <- nrow(DAX_Y)
+LN <- nrow(DAX_N)
+
+
+  #Verbal
+Cron_Verbal_Y <- cronbach.alpha(Verbal_Y)
+Cron_Verbal_N <- cronbach.alpha(Verbal_N)
+
+cocron.two.coefficients(alpha=c(Cron_Verbal_Y, Cron_Verbal_N), n=c(LY, LN), dep=FALSE)
+#> 
+#>   Compare two alpha coefficients
+#> 
+#> Comparison between: a1 = 0.8558, a2 = 0.798
+#> The coefficients are based on independent groups
+#> Group sizes: n1 = 138, n2 = 155
+#> Null hypothesis: a1 is equal to a2
+#> Alternative hypothesis: a1 is not equal to a2 (two-sided)
+#> Level of significance: 0.05
+#> 
+#> F = 1.4004, df1 = 137, df2 = 154, p-value = 0.0424
+#> Null hypothesis rejected
+
+
+  #Physical
+Cron_Physical_Y <- cronbach.alpha(Physical_Y)
+Cron_Physical_N <- cronbach.alpha(Physical_N)
+
+cocron.two.coefficients(alpha=c(Cron_Physical_Y, Cron_Physical_N), n=c(LY, LN), dep=FALSE)
+#> 
+#>   Compare two alpha coefficients
+#> 
+#> Comparison between: a1 = 0.4113, a2 = 0.2772
+#> The coefficients are based on independent groups
+#> Group sizes: n1 = 155, n2 = 138
+#> Null hypothesis: a1 is equal to a2
+#> Alternative hypothesis: a1 is not equal to a2 (two-sided)
+#> Level of significance: 0.05
+#> 
+#> F = 1.2277, df1 = 154, df2 = 137, p-value = 0.2200
+#> Null hypothesis retained
+
+
+  #Vehicle
+Cron_Vehicle_Y <- cronbach.alpha(Vehicle_Y)
+Cron_Vehicle_N <- cronbach.alpha(Vehicle_N)
+
+cocron.two.coefficients(alpha=c(Cron_Vehicle_Y, Cron_Vehicle_N), n=c(LY, LN), dep=FALSE)
+#> 
+#>   Compare two alpha coefficients
+#> 
+#> Comparison between: a1 = 0.6912, a2 = 0.5408
+#> The coefficients are based on independent groups
+#> Group sizes: n1 = 155, n2 = 138
+#> Null hypothesis: a1 is equal to a2
+#> Alternative hypothesis: a1 is not equal to a2 (two-sided)
+#> Level of significance: 0.05
+#> 
+#> F = 1.4868, df1 = 154, df2 = 137, p-value = 0.0181
+#> Null hypothesis rejected
+
+
+  #Adaptive
+Cron_Adaptive_Y <- cronbach.alpha(Adaptive_Y)
+Cron_Adaptive_N <- cronbach.alpha(Adaptive_N)
+
+cocron.two.coefficients(alpha=c(Cron_Adaptive_Y, Cron_Adaptive_N), n=c(LY, LN), dep=FALSE)
+#> 
+#>   Compare two alpha coefficients
+#> 
+#> Comparison between: a1 = 0.8944, a2 = 0.8916
+#> The coefficients are based on independent groups
+#> Group sizes: n1 = 155, n2 = 138
+#> Null hypothesis: a1 is equal to a2
+#> Alternative hypothesis: a1 is not equal to a2 (two-sided)
+#> Level of significance: 0.05
+#> 
+#> F = 1.0269, df1 = 154, df2 = 137, p-value = 0.8757
+#> Null hypothesis retained
+
+
+###############################################
+
+
+#Cronbachs dataframe for output summary
+Cronbachs <- data.frame (DAX_measure = c("Adaptive","Physical","Vehicle","Verbal"),
+                        Att_Check_pass = c(Cron_Adaptive_Y, Cron_Physical_Y, Cron_Vehicle_Y, Cron_Verbal_Y),
+                        Att_Check_fail = c(Cron_Adaptive_N, Cron_Physical_N, Cron_Vehicle_N, Cron_Verbal_N))
+
+
+write.csv(Cronbachs,"cronbachs_summary.csv")                                                                                                                                                                                                                                                                                                                                                                                                               
+```
+
+<sup>Created on 2022-01-18 by the [reprex package](https://reprex.tidyverse.org) (v2.0.1)</sup>
